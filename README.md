@@ -2,7 +2,7 @@
 
 > By Dominec369 — 29 years of astrological practice distilled into code.
 
-A clean, open-source Python library for calculating astrological charts using the Swiss Ephemeris. Supports natal charts, transits, aspects, and synastry with Placidus house system.
+A clean, open-source Python library for calculating astrological charts using the Swiss Ephemeris. Supports natal charts, transits, aspects, synastry, and 11 house systems.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -14,7 +14,7 @@ A clean, open-source Python library for calculating astrological charts using th
 - **Aspects** — Full aspect detection (Conjunction, Opposition, Trine, Square, Sextile, Quincunx, Semi-square, Sesquiquadrate)
 - **Synastry** — Aspect comparison between two charts
 - **Transit-to-Natal** — Current transits against a birth chart
-- **Placidus Houses** — Intentional design choice; Placidus only
+- **11 House Systems** — Placidus (default), Whole Sign, Equal, Koch, Regiomontanus, and more
 - **Retrograde Detection** — Automatic detection of retrograde planets
 - **Standard Astrological Data** — Tropical zodiac, sign rulers, elements, modalities
 
@@ -56,6 +56,32 @@ for planet, data in chart["planets"].items():
 # House angles
 print(f"Ascendant: {format_position(chart['houses']['ascendant'])}")
 print(f"MC: {format_position(chart['houses']['mc'])}")
+print(f"House system: {chart['houses']['house_system']}")
+```
+
+### Using a Different House System
+
+```python
+# Whole Sign houses
+chart_whole = calculate_natal(
+    birth_date=date(1990, 6, 15),
+    birth_time=time(14, 30, 0),
+    latitude=40.7128,
+    longitude=-74.0060,
+    timezone_str="America/New_York",
+    house_system="W",  # Whole Sign
+)
+
+# Equal houses
+chart_equal = calculate_natal(
+    ..., house_system="E"
+)
+
+# Koch houses
+chart_koch = calculate_natal(
+    ..., house_system="K"
+)
+```
 ```
 
 ### Calculate Aspects
@@ -101,9 +127,44 @@ for a in result["transit_to_natal_aspects"]:
 | `config.py` | Standard astrological reference data (orbs, signs, elements, rulers) |
 | `formatter.py` | Formatting utilities for positions, signs, and aspects |
 
-## House System
+## House Systems
 
-Placidus is the only supported house system. This is an intentional design choice for consistency and reliability. If you need another house system, the underlying Swiss Ephemeris can calculate many — contributions welcome.
+All functions accept a `house_system` parameter. Default is `'P'` (Placidus).
+
+| Code | House System |
+|------|-------------|
+| `P`  | **Placidus** (default) |
+| `W`  | Whole Sign |
+| `E`  | Equal |
+| `A`  | Equal (MC) |
+| `K`  | Koch |
+| `R`  | Regiomontanus |
+| `C`  | Campanus |
+| `B`  | Alcabitius |
+| `M`  | Morinus |
+| `H`  | Horizontal |
+| `X`  | Meridian |
+
+Selecting a different house system changes how the 12 house cusps are calculated, which affects which planets fall in which houses. The ASC and MC remain fixed regardless of house system.
+
+```python
+from calculator import calculate_natal, HOUSE_SYSTEMS
+
+# List all available house systems
+for code, name in HOUSE_SYSTEMS.items():
+    print(f"{code}: {name}")
+
+# Calculate with Whole Sign houses
+chart_ws = calculate_natal(
+    ..., house_system="W"
+)
+
+# Check which system was used
+print(chart_ws["houses"]["house_system"])   # "Whole Sign"
+print(chart_ws["houses"]["house_system_code"])  # "W"
+```
+
+> Note: The `house_system` parameter is also available on `calculate_transits()` and `calculate_transit_to_natal()`.
 
 ## License
 

@@ -2,7 +2,7 @@
 Astrology Engine — Astronomical calculation core.
 
 Uses Swiss Ephemeris (swisseph) for all ephemeris calculations.
-Placidus house system only (intentional design choice).
+Supports multiple house systems (Placidus default).
 No business logic, no proprietary algorithms — pure astronomical/astrological
 computation using public-domain ephemeris data.
 """
@@ -56,6 +56,30 @@ FLAG_SPEED = swe.FLG_SPEED
 FLAG_ALL = FLAG_SWIEPH | FLAG_SPEED
 
 
+# ── House System Codes ──────────────────────────────────────────────────────
+
+# Standard Swiss Ephemeris house system characters
+# 'P' is the default (Placidus)
+
+HOUSE_SYSTEMS = {
+    "P": "Placidus",
+    "E": "Equal",
+    "W": "Whole Sign",
+    "R": "Regiomontanus",
+    "K": "Koch",
+    "C": "Campanus",
+    "A": "Equal (MC)",
+    "B": "Alcabitius",
+    "M": "Morinus",
+    "H": "Horizontal",
+    "X": "Meridian",
+}
+
+ALLOWED_HOUSE_SYSTEMS = list(HOUSE_SYSTEMS.keys())
+
+DEFAULT_HOUSE_SYSTEM = "P"
+
+
 # ── Helper Functions ───────────────────────────────────────────────────────
 
 
@@ -90,17 +114,35 @@ def _calc_position(jd: float, planet_id: int,
     }
 
 
-def _calc_houses(jd: float, latitude: float, longitude: float) -> Dict[str, Any]:
-    """Calculate Placidus houses and angles.
+def _calc_houses(jd: float, latitude: float, longitude: float,
+                 house_system: str = DEFAULT_HOUSE_SYSTEM) -> Dict[str, Any]:
+    """Calculate houses and angles for the specified house system.
 
-    Note: Placidus is intentionally the only supported house system.
+    Args:
+        jd: Julian Day number.
+        latitude: Geographic latitude (decimal degrees).
+        longitude: Geographic longitude (decimal degrees).
+        house_system: Swiss Ephemeris house system code.
+            See HOUSE_SYSTEMS for available options.
+            Default is 'P' (Placidus).
+
+    Returns:
+        Dict with house cusps, ASC, MC, and other angles.
     """
-    # Swiss Ephemeris: houses takes geographic longitude, latitude, and "house system" char
-    # For Placidus, the house system character is 'P'
-    cusps, ascmc = swe.houses(jd, latitude, longitude, b'P')
+    if house_system not in ALLOWED_HOUSE_SYSTEMS:
+        raise ValueError(
+            f"Unsupported house system: '{house_system}'. "
+            f"Must be one of: {', '.join(ALLOWED_HOUSE_SYSTEMS)}"
+        )
+
+    system_name = HOUSE_SYSTEMS[house_system]
+    code = house_system.encode('ascii')
+
+    cusps, ascmc = swe.houses(jd, latitude, longitude, code)
 
     return {
-        "house_system": "Placidus",
+        "house_system": system_name,
+        "house_system_code": house_system,
         "cusps": list(cusps),  # houses 1-12, indexed 0-11
         "ascendant": float(ascmc[0]),
         "mc": float(ascmc[1]),
@@ -148,6 +190,7 @@ def calculate_natal(
     longitude: float,
     timezone_str: str,
     include_speed: bool = True,
+    house_system: str = DEFAULT_HOUSE_SYSTEM,
 ) -> Dict[str, Any]:
     """Calculate a complete natal (birth) chart.
 
@@ -158,6 +201,8 @@ def calculate_natal(
         longitude: Geographic longitude of birth location (decimal degrees).
         timezone_str: IANA timezone string (e.g., 'America/New_York').
         include_speed: Whether to include planetary speed/retrograde data.
+        house_system: Swiss Ephemeris house system code ('P', 'W', 'E', etc.).
+            Default is 'P' (Placidus). See HOUSE_SYSTEMS for all options.
 
     Returns:
         Dict containing planet positions, houses, angles, and metadata.
@@ -171,7 +216,7 @@ def calculate_natal(
     jd = _julian_day(dt_local)
 
     # Calculate house cusps
-    houses = _calc_houses(jd, latitude, longitude)
+    houses = _calc_houses(jd, latitude, longitude, house_system)
 
     # Calculate planet positions
     flags = FLAG_ALL if include_speed else FLAG_SWIEPH
@@ -208,6 +253,7 @@ def calculate_transits(
     latitude: float = 0.0,
     longitude: float = 0.0,
     timezone_str: str = "UTC",
+    house_system: str = DEFAULT_HOUSE_SYSTEM,
 ) -> Dict[str, Any]:
     """Calculate transiting planet positions for a given date.
 
@@ -216,6 +262,8 @@ def calculate_transits(
         latitude: Geographic latitude (for house calculation).
         longitude: Geographic longitude (for house calculation).
         timezone_str: IANA timezone string.
+        house_system: Swiss Ephemeris house system code ('P', 'W', 'E', etc.).
+            Default is 'P' (Placidus). See HOUSE_SYSTEMS for all options.
 
     Returns:
         Dict with transit planet positions and house data.
@@ -228,7 +276,7 @@ def calculate_transits(
     dt_local = tz.localize(dt_local)
 
     jd = _julian_day(dt_local)
-    houses = _calc_houses(jd, latitude, longitude)
+    houses = _calc_houses(jd, latitude, longitude, house_system)
 
     planet_positions = {}
     for name, pid in PLANETS.items():
@@ -322,6 +370,7 @@ def calculate_transit_to_natal(
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
     timezone_str: Optional[str] = None,
+    house_system: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Calculate current transits against a natal chart.
 
@@ -330,6 +379,8 @@ def calculate_transit_to_natal(
         target_date: Date for transit calculation (defaults to today).
         latitude, longitude, timezone_str: Override location (uses natal
             location by default).
+        house_system: Swiss Ephemeris house system code ('P', 'W', 'E', etc.).
+            Defaults to the house system used in the natal chart, or 'P'.
 
     Returns:
         Dict with transit positions, transit-to-natal aspects, and metadata.
@@ -340,9 +391,16 @@ def calculate_transit_to_natal(
         longitude = natal_data["longitude"]
     if timezone_str is None:
         timezone_str = natal_data["timezone"]
+    if house_system is None:
+        house_system = natal_data.get("houses", {}).get(
+            "house_system_code", DEFAULT_HOUSE_SYSTEM
+        )
 
     # Calculate transit positions
-    transit_data = calculate_transits(target_date, latitude, longitude, timezone_str)
+    transit_data = calculate_transits(
+        target_date, latitude, longitude, timezone_str,
+        house_system=house_system
+    )
 
     # Calculate transit-to-natal aspects
     transit_to_natal = calculate_aspects(

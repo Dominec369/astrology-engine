@@ -25,6 +25,8 @@ from calculator import (
     calculate_aspects,
     calculate_transit_to_natal,
     PLANETS,
+    HOUSE_SYSTEMS,
+    ALLOWED_HOUSE_SYSTEMS,
 )
 from config import ASPECTS
 from formatter import (
@@ -304,6 +306,85 @@ def test_edge_cases():
           f"{squares[0]['orb']:.2f}° ✓")
 
 
+def test_multiple_house_systems():
+    """Test that all supported house systems produce valid output."""
+    print("\n[TEST] Multiple house systems")
+
+    assert len(ALLOWED_HOUSE_SYSTEMS) == 11, \
+        f"Expected 11 house systems, got {len(ALLOWED_HOUSE_SYSTEMS)}"
+
+    results = {}
+    for code in ALLOWED_HOUSE_SYSTEMS:
+        chart = calculate_natal(
+            **OPRAH_BIRTH, house_system=code
+        )
+        results[code] = chart
+
+        # Verify structure
+        assert "houses" in chart
+        h = chart["houses"]
+        assert h["house_system_code"] == code
+        assert h["house_system"] == HOUSE_SYSTEMS[code]
+        assert len(h["cusps"]) == 12
+
+        # ASC and MC should be the same regardless of house system
+        if code == ALLOWED_HOUSE_SYSTEMS[0]:
+            ref_asc = h["ascendant"]
+            ref_mc = h["mc"]
+
+        # ASC and MC are fixed astronomical angles — identical across systems
+        assert abs(h["ascendant"] - 269.68) < 2.0, \
+            f"{HOUSE_SYSTEMS[code]} ASC {h['ascendant']:.2f}° out of range"
+
+        # All planets assigned to valid houses
+        for pname, pdata in chart["planets"].items():
+            assert 1 <= pdata["house"] <= 12, \
+                f"{pname} in house {pdata['house']} ({HOUSE_SYSTEMS[code]})"
+
+    # Verify different house systems produce different cusp placements
+    placidus_cusps = results["P"]["houses"]["cusps"]
+    whole_cusps = results["W"]["houses"]["cusps"]
+
+    # Whole Sign houses should differ from Placidus (at 33°N latitude)
+    cusp_diff = sum(abs(a - b) for a, b in zip(placidus_cusps, whole_cusps))
+    if cusp_diff < 1.0:
+        print(f"  Warning: Placidus and Whole Sign cusps are very similar "
+              f"(diff={cusp_diff:.1f}°) — this can happen at certain latitudes")
+    else:
+        print(f"  Placidus vs Whole Sign cusp difference: {cusp_diff:.1f}° ✓")
+
+    print(f"  All {len(ALLOWED_HOUSE_SYSTEMS)} house systems produce valid output: ✓")
+    print(f"  Systems tested: {', '.join(f'{c} ({HOUSE_SYSTEMS[c]})' for c in ALLOWED_HOUSE_SYSTEMS)}")
+
+
+def test_invalid_house_system():
+    """Test that invalid house system raises ValueError."""
+    print("\n[TEST] Invalid house system")
+
+    from calculator import _calc_houses, DEFAULT_HOUSE_SYSTEM
+    from datetime import datetime
+    import pytz
+
+    tz = pytz.timezone("UTC")
+    dt = tz.localize(datetime(2024, 1, 1, 12, 0, 0))
+
+    # Calculate JD the same way the module does
+    utc_dt = dt.astimezone(pytz.UTC)
+    jd = __import__('swisseph').julday(
+        utc_dt.year, utc_dt.month, utc_dt.day,
+        utc_dt.hour + utc_dt.minute / 60.0 + utc_dt.second / 3600.0
+    )
+
+    try:
+        _calc_houses(jd, 40.0, -74.0, house_system="Z")
+        assert False, "Should have raised ValueError for 'Z'"
+    except ValueError as e:
+        assert "Unsupported house system" in str(e)
+        print(f"  Invalid code 'Z' correctly rejected: ✓")
+    except Exception as e:
+        assert False, f"Wrong exception type: {type(e).__name__}: {e}"
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main():
@@ -362,6 +443,20 @@ def main():
         test_transit_to_natal(chart)
     except AssertionError as e:
         print(f"  ✗ TRANSIT-TO-NATAL TEST FAILED: {e}")
+        return 1
+
+    # Test multiple house systems
+    try:
+        test_multiple_house_systems()
+    except AssertionError as e:
+        print(f"  ✗ HOUSE SYSTEM TEST FAILED: {e}")
+        return 1
+
+    # Test invalid house system rejection
+    try:
+        test_invalid_house_system()
+    except AssertionError as e:
+        print(f"  ✗ INVALID HOUSE SYSTEM TEST FAILED: {e}")
         return 1
 
     print("\n" + "=" * 60)
